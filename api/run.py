@@ -1,4 +1,3 @@
-from google.cloud import speech
 from pydub.utils import mediainfo
 import subprocess
 import os
@@ -11,6 +10,7 @@ import spacy
 import whisper_timestamped as whisper
 
 import threading
+import string
 from playsound import playsound
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -64,29 +64,6 @@ def create_audio_transcript(file_path):
     channels, bit_rate, sample_rate = video_info(file_path)
     audio_path = video_to_audio(file_path, "audio.wav", channels, bit_rate, sample_rate)
     results = transcribe_audiofile(audio_path)
-    # return
-
-    # adds more buffer between words if their start_seconds are the same
-    # transcript = results["transcript"]
-    # results = results["results"]
-    # last_time = [results[0]["start_seconds"], 1]
-
-    # for i in range(1, len(results)):
-    #     if results[i]["start_seconds"] == last_time[0]:
-    #         if i + 1 < len(results):
-    #             if (
-    #                 results[i]["start_seconds"] + 0.4 * last_time[1]
-    #                 >= results[i + 1]["start_seconds"]
-    #                 and results[i + 1]["start_seconds"] != last_time[0]
-    #             ):
-    #                 results[i]["start_seconds"] += (
-    #                     results[i + 1]["start_seconds"] - results[i]["start_seconds"]
-    #                 ) / 2
-    #             else:
-    #                 results[i]["start_seconds"] += 0.4 * last_time[1]
-    #                 last_time[1] += 1
-    #     else:
-    #         last_time = [results[i]["start_seconds"], 1]
 
     with open("result.json", "w") as edited_file:
         json.dump(results, edited_file)
@@ -119,8 +96,8 @@ def add_captions_to_video(video_path, captions_json_path, output_path, keywords)
 
         current_time = frame_number / fps
 
-        # Check if there's a caption for this time
-        # caption_text = word_info["word"]
+        # If the current_time is after the next_word's timestamp,
+        # write that word to the captions
         if current_time >= next_word["start_seconds"]:
             caption_text = next_word["word"]
 
@@ -128,34 +105,38 @@ def add_captions_to_video(video_path, captions_json_path, output_path, keywords)
             if word_index < len(captions):
                 next_word = captions[word_index]
 
-        if caption_text in keywords["named_entities"]:
+        stripped_text = caption_text.translate(str.maketrans('', '', string.punctuation))
+
+        if stripped_text in keywords["named_entities"]:
             text_color = (255, 255, 0)
-            border = True
-        elif caption_text in keywords["nouns"]:
+        elif stripped_text in keywords["nouns"]:
             text_color = (0, 0, 255)
-            border = True
         else:
             text_color = (255, 255, 255)
-            border = False
 
-        if border:
-            cv2.putText(
-                frame,
-                caption_text,
-                (100, height // 2),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (0, 0, 0),
-                8,
-                cv2.LINE_AA,
-            )
+        textsize = cv2.getTextSize(caption_text, cv2.FONT_HERSHEY_TRIPLEX, 2, 2)[0]
+
+        # get coords based on boundary
+        textX = (width - textsize[0]) // 2
+        textY = (height + textsize[1]) // 2
 
         cv2.putText(
             frame,
             caption_text,
-            (100, height // 2),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1,
+            (textX, textY),
+            cv2.FONT_HERSHEY_TRIPLEX,
+            2,
+            (0, 0, 0),
+            8,
+            cv2.LINE_AA,
+        )
+
+        cv2.putText(
+            frame,
+            caption_text,
+            (textX, textY),
+            cv2.FONT_HERSHEY_TRIPLEX,
+            2,
             text_color,
             2,
             cv2.LINE_AA,
@@ -197,7 +178,7 @@ def add_captions_to_video(video_path, captions_json_path, output_path, keywords)
 
 
 # pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.0.0/en_core_web_sm-3.0.0.tar.gz
-def extract_keywords(file_path, top_n=3):
+def extract_keywords(file_path):
     nlp = spacy.load("en_core_web_sm")
     with open(file_path, "r") as json_file:
         data = json.load(json_file)
@@ -222,67 +203,21 @@ def extract_keywords(file_path, top_n=3):
 
         # mark ents and nouns as highlights
         return {
-            "named_entities": set(doc.ents),
-            "nouns": set(
-                [
-                    token.text
-                    for token in doc
-                    if token.pos_ == "NOUN"
-                    and token.dep_ != "conj"
-                    and token.dep_ != "attr"
-                ]
-            ),
+            "named_entities": set([str(ent) for ent in doc.ents]),
+            "nouns": set([token.text for token in doc if token.pos_ == "NOUN"]),
         }
-
-
-def play_audio_and_write_captions_to_terminal():
-    t = threading.Thread(
-        target=lambda: playsound(
-            r"C:\Users\ianbb\Documents\Code\headstarter\Hiring-Hackathon-Jelly\api\audio.wav"
-        )
-    )
-
-    t.start()
-    print("started")
-
-    with open("result_edited.json", "r") as json_file:
-        data = json.load(json_file)
-        initial_time = time.time()
-
-        for word_info in data["results"]:
-            word = word_info["word"]
-            start_seconds = word_info["start_seconds"]
-
-            target_time = initial_time + start_seconds
-
-            while time.time() < target_time:
-                a = 0
-
-            os.system("cls" if os.name == "nt" else "clear")
-            print(word)
-
-    t.join()
 
 
 if __name__ == "__main__":
     dir_path = os.path.dirname(os.path.realpath(__file__))
-    mode = 1
+    video_path = dir_path + r"\files\unedited.mp4"
+    # create_audio_transcript(video_path)
 
-    if mode == 0:
-        play_audio_and_write_captions_to_terminal()
-    elif mode == 1:
-        # file_path = dir_path + r"\files\edited_better.mp4"
-        # create_audio_transcript(file_path)
+    # add captions to video
+    captions_json_path = dir_path + r"\result.json"
 
-        # add captions to video
-        video_path = dir_path + r"\files\edited_better.mp4"
-        captions_json_path = dir_path + r"\result.json"
+    keywords = extract_keywords(captions_json_path)
+    print(keywords)
 
-        keywords = extract_keywords(captions_json_path)
-
-        output_path = "output_video.mp4"
-        add_captions_to_video(video_path, captions_json_path, output_path, keywords)
-    elif mode == 2:
-        captions_json_path = dir_path + r"\result.json"
-        words = extract_keywords(captions_json_path)
-        print(words)
+    output_path = "output_video.mp4"
+    add_captions_to_video(video_path, captions_json_path, output_path, keywords)
