@@ -3,19 +3,10 @@ import subprocess
 import os
 import json
 import cv2
-import numpy as np
-import time
-
-import spacy
-import whisper_timestamped as whisper
-
-import threading
 import string
-from playsound import playsound
+import spacy
 
-dir_path = os.path.dirname(os.path.realpath(__file__))
-credentials_path = dir_path + r"\credentials.json"
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+import whisper_timestamped as whisper
 
 
 def video_info(video_filepath):
@@ -105,7 +96,9 @@ def add_captions_to_video(video_path, captions_json_path, output_path, keywords)
             if word_index < len(captions):
                 next_word = captions[word_index]
 
-        stripped_text = caption_text.translate(str.maketrans('', '', string.punctuation))
+        stripped_text = caption_text.translate(
+            str.maketrans("", "", string.punctuation)
+        )
 
         if stripped_text in keywords["named_entities"]:
             text_color = (255, 255, 0)
