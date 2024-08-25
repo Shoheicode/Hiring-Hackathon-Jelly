@@ -204,7 +204,7 @@ def extract_keywords(file_path):
 if __name__ == "__main__":
     dir_path = os.path.dirname(os.path.realpath(__file__))
     video_path = dir_path + r"\files\unedited.mp4"
-    # create_audio_transcript(video_path)
+    create_audio_transcript(video_path)
 
     # add captions to video
     captions_json_path = dir_path + r"\result.json"
