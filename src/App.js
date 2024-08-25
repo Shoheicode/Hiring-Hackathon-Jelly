@@ -1,8 +1,9 @@
 //import logo from './logo.svg';
 import { unstable_renderSubtreeIntoContainer } from 'react-dom';
 import './App.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useState} from 'react';
 import axios, { Axios } from "axios"
+//const fs = require('fs');
 
 function App() {
   const [data, setData] = useState("");
@@ -49,60 +50,91 @@ function App() {
   const [da, setFormData] =  useState(null)
   const [url, setSource] = useState(null)
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    console.log(file)
+  function VideoUploader() {
+    const [file, setFile] = useState(null);
 
-    if (!file) {
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setSource(url)
+    const handleFileChange = (e) => {
+      setFile(e.target.files[0]);
+    };
 
-    console.log(file.name)
-
-    const formData = new FormData();
-    formData.append('video', file); // videoFile is the MP4 file from an input
-
-    const objectUrl = window.URL.createObjectURL(file);
-
-    console.log(objectUrl)
-  
-    //console.log(formData);
-
-    // fetch('https://httpbin.org/post', {
-    //   method: 'POST',
-    //   body: file,
-    //   // 👇 Set headers manually for single file upload
-    //   headers: {
-    //     'content-type': file.type,
-    //     'content-length': `${file.size}`, // 👈 Headers need to be a string
-    //   },
-    // })
-    //   .then((res) => res.json())
-    //   .then((data) => console.log(data))
-    //   .catch((err) => console.error(err));
-
-    try {
-      const response = await fetch('http://127.0.0.1:5000/gam', {
-        method: 'POST',
-        headers: {
-          "Content-Type": "multipart/form-data",
-          'Access-Control-Allow-Origin':'*',
-          'Access-Control-Allow-Methods':'POST'
-        },
-        body: formData,
-      });
-      
-      if (response.ok) {
-        console.log('Video uploaded successfully');
-      } else {
-        console.error('Upload failed');
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!file) {
+        alert("Please select a file first!");
+        return;
       }
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  };
+
+      const formData = new FormData();
+      formData.append("video", file);
+
+      console.log(file)
+      const filename = file.name
+
+      
+      try {
+        const response = await fetch("http://localhost:5000/upload", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (response.ok) {
+          console.log(response)
+          const result = await response.json();
+          console.log("Success:", result);
+          // Handle success (e.g., show a success message)
+        } else {
+          console.error("Error:", response.statusText);
+          // Handle error (e.g., show an error message)
+        }
+      } catch (error) {
+        console.error("Error:", error);
+        // Handle error (e.g., show an error message)
+      }
+
+
+      //const filename = file.name
+      try {
+        const response = await fetch(`http://localhost:5000/uploads/${filename}`);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // Get the filename from the Content-Disposition header if available
+        const contentDisposition = response.headers.get('Content-Disposition');
+        const filenameFromHeader = contentDisposition
+          ? contentDisposition.split('filename=')[1].replace(/['"]/g, '')
+          : filename;
+  
+        // Get the blob from the response
+        const blob = await response.blob();
+        
+        // Create a temporary URL for the blob
+        const url = window.URL.createObjectURL(blob);
+        
+        // Create a temporary anchor element and trigger the download
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filenameFromHeader;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Clean up
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } catch (error) {
+        console.error('Download failed:', error);
+      }
+    };
+
+    return (
+      <form onSubmit={handleSubmit}>
+        <input type="file" onChange={handleFileChange} accept="video/*" />
+        <button type="submit">Upload Video</button>
+      </form>
+    );
+  }
   
 
  // console.log(data[0])
@@ -183,12 +215,13 @@ function App() {
       {
         data
       }
-      <input onChange={
+      <VideoUploader />
+      {/* <input onChange={
          (e) => {
            setFile(e.target.files[0]);
            console.log(e.target.files[0])
           }
-       } type='file' name='video'/> 
+       } type='file' name='video/*'/> 
 
        <button onClick={handleSubmit}>
           Upload
@@ -205,7 +238,7 @@ function App() {
       )}
       {
         console.log(da)
-      }
+      } */}
     </div>
   );
 }
