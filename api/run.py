@@ -1,6 +1,3 @@
-# Imports the Google Cloud client library
-
-
 from google.cloud import speech
 from pydub.utils import mediainfo
 import subprocess
@@ -9,6 +6,9 @@ import json
 import cv2
 import numpy as np
 import time
+
+import spacy
+import whisper_timestamped as whisper
 
 import threading
 from playsound import playsound
@@ -40,88 +40,59 @@ def video_to_audio(
     return audio_filename
 
 
-def transcribe_audiofile(audio_file: str) -> speech.RecognizeResponse:
-    # Instantiates a client
-    client = speech.SpeechClient()
+def transcribe_audiofile(audio_file: str):
+    audio = whisper.load_audio(audio_file)
+    model = whisper.load_model("base")
 
-    with open(audio_file, "rb") as f:
-        audio_content = f.read()
-
-    audio = speech.RecognitionAudio(content=audio_content)
-
-    config = {
-        "encoding": speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        "language_code": "en-US",
-        "enable_word_time_offsets": True,
-        "model": "video",
-    }
-
-    # Detects speech in the audio file
-    response = client.recognize(config=config, audio=audio)
+    result = whisper.transcribe(model, audio, language="en")
 
     arr = []
-    for result in response.results:
-        best_alt = result.alternatives[0]
-
-        for word_info in best_alt.words:
-            try:
-                start_time = word_info.start_time
-                end_time = word_info.end_time
-            except:
-                pass
-
-            # print(word_info.word)
-            # print(start_time.seconds)
-            # print(start_time.microseconds)
-            # print(end_time.seconds)
-            # print(end_time.microseconds)
-            print()
-
+    for segment in result["segments"]:
+        for word in segment["words"]:
             arr.append(
                 {
-                    "word": word_info.word,
-                    "start_seconds": start_time.seconds
-                    + (start_time.microseconds / 1000000),
-                    "end_seconds": end_time.seconds
-                    + +(end_time.microseconds / 1000000),
+                    "word": word["text"],
+                    "start_seconds": word["start"],
+                    "end_seconds": word["end"],
                 }
             )
 
-        # print(f"Transcript: {result.alternatives[0].transcript}")
-    return {"results": arr}
+    return {"results": arr, "transcript": result["text"]}
 
 
 def create_audio_transcript(file_path):
     channels, bit_rate, sample_rate = video_info(file_path)
     audio_path = video_to_audio(file_path, "audio.wav", channels, bit_rate, sample_rate)
     results = transcribe_audiofile(audio_path)
+    # return
 
     # adds more buffer between words if their start_seconds are the same
-    results = results["results"]
-    last_time = [results[0]["start_seconds"], 1]
+    # transcript = results["transcript"]
+    # results = results["results"]
+    # last_time = [results[0]["start_seconds"], 1]
 
-    for i in range(1, len(results)):
-        if results[i]["start_seconds"] == last_time[0]:
-            if i + 1 < len(results):
-                if (
-                    results[i]["start_seconds"] + 0.4 * last_time[1]
-                    >= results[i + 1]["start_seconds"]
-                    and results[i + 1]["start_seconds"] != last_time[0]
-                ):
-                    results[i]["start_seconds"] += (
-                        results[i + 1]["start_seconds"] - results[i]["start_seconds"]
-                    ) / 2
-                else:
-                    results[i]["start_seconds"] += 0.4 * last_time[1]
-                    last_time[1] += 1
-        else:
-            last_time = [results[i]["start_seconds"], 1]
+    # for i in range(1, len(results)):
+    #     if results[i]["start_seconds"] == last_time[0]:
+    #         if i + 1 < len(results):
+    #             if (
+    #                 results[i]["start_seconds"] + 0.4 * last_time[1]
+    #                 >= results[i + 1]["start_seconds"]
+    #                 and results[i + 1]["start_seconds"] != last_time[0]
+    #             ):
+    #                 results[i]["start_seconds"] += (
+    #                     results[i + 1]["start_seconds"] - results[i]["start_seconds"]
+    #                 ) / 2
+    #             else:
+    #                 results[i]["start_seconds"] += 0.4 * last_time[1]
+    #                 last_time[1] += 1
+    #     else:
+    #         last_time = [results[i]["start_seconds"], 1]
 
     with open("result.json", "w") as edited_file:
-        json.dump({"results": results}, edited_file)
+        json.dump(results, edited_file)
 
 
-def add_captions_to_video(video_path, captions_json_path, output_path):
+def add_captions_to_video(video_path, captions_json_path, output_path, keywords):
     # Read the video
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -133,13 +104,13 @@ def add_captions_to_video(video_path, captions_json_path, output_path):
         captions = json.load(f)["results"]
 
     # Prepare the output video
-    temp_output_path = 'temp_output_without_audio.mp4'
+    temp_output_path = "temp_output_without_audio.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(temp_output_path, fourcc, fps, (width, height))
 
     frame_number = 0
     caption_text = captions[0]["word"]
-    next_word = captions[1] # unsafe bc captions could be more
+    next_word = captions[1]  # unsafe bc captions could be more
     word_index = 1
     while cap.isOpened():
         ret, frame = cap.read()
@@ -157,15 +128,35 @@ def add_captions_to_video(video_path, captions_json_path, output_path):
             if word_index < len(captions):
                 next_word = captions[word_index]
 
-        # if caption_text:
-        #     # Add caption to the frame
+        if caption_text in keywords["named_entities"]:
+            text_color = (255, 255, 0)
+            border = True
+        elif caption_text in keywords["nouns"]:
+            text_color = (0, 0, 255)
+            border = True
+        else:
+            text_color = (255, 255, 255)
+            border = False
+
+        if border:
+            cv2.putText(
+                frame,
+                caption_text,
+                (100, height // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                (0, 0, 0),
+                8,
+                cv2.LINE_AA,
+            )
+
         cv2.putText(
             frame,
             caption_text,
             (100, height // 2),
             cv2.FONT_HERSHEY_SIMPLEX,
             1,
-            (255, 255, 255),
+            text_color,
             2,
             cv2.LINE_AA,
         )
@@ -178,15 +169,21 @@ def add_captions_to_video(video_path, captions_json_path, output_path):
 
     # Combine the captioned video with the original audio using FFmpeg
     ffmpeg_command = [
-        'ffmpeg',
-        '-i', temp_output_path,
-        '-i', video_path,
-        '-c:v', 'libx264',
-        '-c:a', 'aac',
-        '-map', '0:v:0',
-        '-map', '1:a:0',
-        '-shortest',
-        output_path
+        "ffmpeg",
+        "-i",
+        temp_output_path,
+        "-i",
+        video_path,
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-shortest",
+        output_path,
     ]
 
     try:
@@ -197,6 +194,45 @@ def add_captions_to_video(video_path, captions_json_path, output_path):
     finally:
         # Remove the temporary file
         os.remove(temp_output_path)
+
+
+# pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.0.0/en_core_web_sm-3.0.0.tar.gz
+def extract_keywords(file_path, top_n=3):
+    nlp = spacy.load("en_core_web_sm")
+    with open(file_path, "r") as json_file:
+        data = json.load(json_file)
+        text = data["transcript"]
+
+        doc = nlp(text)
+        # print(doc.ents)
+        # for token in doc:
+        #     print(
+        #         token.text,
+        #         # token.lemma_,
+        #         "\t",
+        #         token.pos_,
+        #         "\t",
+        #         token.tag_,
+        #         "\t",
+        #         token.dep_,
+        #         # token.shape_,
+        #         # token.is_alpha,
+        #         # token.is_stop,
+        #     )
+
+        # mark ents and nouns as highlights
+        return {
+            "named_entities": set(doc.ents),
+            "nouns": set(
+                [
+                    token.text
+                    for token in doc
+                    if token.pos_ == "NOUN"
+                    and token.dep_ != "conj"
+                    and token.dep_ != "attr"
+                ]
+            ),
+        }
 
 
 def play_audio_and_write_captions_to_terminal():
@@ -229,17 +265,24 @@ def play_audio_and_write_captions_to_terminal():
 
 
 if __name__ == "__main__":
-    running = False
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    mode = 1
 
-    if running:
+    if mode == 0:
         play_audio_and_write_captions_to_terminal()
-    else:
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        file_path = dir_path + r"\files\edited_better.mp4"
+    elif mode == 1:
+        # file_path = dir_path + r"\files\edited_better.mp4"
         # create_audio_transcript(file_path)
 
         # add captions to video
         video_path = dir_path + r"\files\edited_better.mp4"
         captions_json_path = dir_path + r"\result.json"
+
+        keywords = extract_keywords(captions_json_path)
+
         output_path = "output_video.mp4"
-        add_captions_to_video(video_path, captions_json_path, output_path)
+        add_captions_to_video(video_path, captions_json_path, output_path, keywords)
+    elif mode == 2:
+        captions_json_path = dir_path + r"\result.json"
+        words = extract_keywords(captions_json_path)
+        print(words)
