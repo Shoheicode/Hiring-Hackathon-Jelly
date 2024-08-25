@@ -50,13 +50,13 @@ def transcribe_audiofile(audio_file: str):
     return {"results": arr, "transcript": result["text"]}
 
 
-def create_audio_transcript(file_path):
+def create_audio_transcript(file_path, result_path):
     audio_file_path = "audio.wav"
     channels, bit_rate, sample_rate = video_info(file_path)
     video_to_audio(file_path, audio_file_path, channels, bit_rate, sample_rate)
     results = transcribe_audiofile(audio_file_path)
 
-    with open("result.json", "w") as edited_file:
+    with open(result_path, "w") as edited_file:
         json.dump(results, edited_file)
 
 
@@ -96,12 +96,12 @@ if __name__ == "__main__":
     dir_path = pathlib.Path(__file__).parent
     video_path = dir_path.joinpath(video_path_str)
 
-    create_audio_transcript(video_path)
-
-    # add captions to video
     json_path = r"result.json"
     captions_json_path = dir_path.joinpath(json_path)
 
+    create_audio_transcript(video_path, captions_json_path)
+
+    # add captions to video
     keywords = extract_keywords(captions_json_path)
     print(keywords)
 
